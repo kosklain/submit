@@ -1,4 +1,3 @@
-import glob
 import os
 import os.path
 import sys
@@ -17,6 +16,12 @@ def arg_split(args, sep=","):
 
 
 class SubmissionError(Exception):
+    pass
+
+class ConfigError(Exception):
+    pass
+
+class DirectoryNotFound(Exception):
     pass
 
 
@@ -158,11 +163,11 @@ class JobSubmitter(object):
     def submit_directory(self, directory):
         """Submits the given directory to the job scheduler."""
         if not os.path.isdir(directory):
-            raise SubmissionError("specified path is not a directory")
+            raise DirectoryNotFound("specified path is not a directory")
 
         cfg_path, cfg_filename = self.find_config_file(directory)
         if not cfg_path:
-            raise SubmissionError("no config file found for directory %s" % directory)
+            raise ConfigError("no config file found for directory %s" % directory)
         log.debug("Using configuration file %s" % cfg_path)
         cfg = Configuration(cfg_path)
         log.debug("parsed configuration: {" +
@@ -253,6 +258,31 @@ class JobSubmitter(object):
         return cpu_job_id, gpu_job_id
 
 
+def submit_dirs_recursively(directories, debug, js):
+    for directory in directories:
+        print "%20s: " % directory,
+        if debug:
+            print
+        sys.stdout.flush()
+        try:
+            cpu_id, gpu_id = js.submit_directory(directory)
+            if cpu_id and gpu_id:
+                print "cpu: %5d   gpu: %5d" % (cpu_id, gpu_id)
+            elif cpu_id:
+                print "%5d" % cpu_id
+            else:
+                print "%5d" % gpu_id
+        except SubmissionError as e:
+            print e.message
+            sys.exit(1)
+        except DirectoryNotFound:
+            return
+        except ConfigError:
+            pass
+        sub_dirs = [os.path.join(directory, sub_dir)
+                       for sub_dir in os.listdir(directory)]
+        submit_dirs_recursively(sub_dirs, debug, js)
+
 def run():
     global log
 
@@ -324,22 +354,8 @@ def run():
     except SubmissionError as e:
         print e.message
         sys.exit(1)
+    submit_dirs_recursively(args.directories, args.debug, js)
 
-    for directory in args.directories:
-        print "%20s: " % directory,
-        if args.debug:
-            print
-        sys.stdout.flush()
-        try:
-            cpu_id, gpu_id = js.submit_directory(directory)
-            if cpu_id and gpu_id:
-                print "cpu: %5d   gpu: %5d" % (cpu_id, gpu_id)
-            elif cpu_id:
-                print "%5d" % cpu_id
-            else:
-                print "%5d" % gpu_id
-        except SubmissionError as e:
-            print e.message
 
 
 if __name__ == '__main__':
